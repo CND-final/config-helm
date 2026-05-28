@@ -1,0 +1,13 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "config-man.fullname" . }}-backend-pdb
+  labels:
+    {{- include "config-man.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  minAvailable: {{ .Values.pdb.backend.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "config-man.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: backend

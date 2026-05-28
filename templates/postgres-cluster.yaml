@@ -1,0 +1,21 @@
+apiVersion: "acid.zalan.do/v1"
+kind: postgresql
+metadata:
+  name: {{ .Values.postgresCluster.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "config-man.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  teamId: "config-man"
+  volume:
+    size: {{ .Values.postgresCluster.volume.size }}
+  numberOfInstances: {{ .Values.postgresCluster.numberOfInstances }}
+  users:
+    {{ .Values.postgresCluster.username }}:
+      - superuser
+      - createdb
+  databases:
+    {{ .Values.postgresCluster.database }}: {{ .Values.postgresCluster.username }}
+  postgresql:
+    version: {{ .Values.postgresCluster.version | quote }}
