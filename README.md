@@ -36,32 +36,30 @@ Settings → Kubernetes → Enable Kubernetes → Apply & Restart
 
 ### Step 1 — Add Helm repos
 
-```cmd
+```bash
 helm repo add postgres-operator-charts https://opensource.zalando.com/postgres-operator/charts/postgres-operator
-helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
 ```
 
 ### Step 2 — Install Zalando postgres-operator
 
-```cmd
+```bash
 helm install postgres-operator postgres-operator-charts/postgres-operator \
   --namespace postgres-operator \
   --create-namespace
 ```
 
 Verify:
-```cmd
+```bash
 kubectl get pods -n postgres-operator
 ```
 Wait until `postgres-operator-xxx` is `Running`.
 
 ### Step 3 — Install config-man
 
-```cmd
+```bash
 git clone https://github.com/CND-final/config-helm.git
 cd config-helm
-helm dependency update .
 helm install config-man . \
   --namespace config-man \
   --create-namespace
@@ -69,7 +67,7 @@ helm install config-man . \
 
 ### Step 4 — Verify
 
-```cmd
+```bash
 kubectl get pods -n config-man
 ```
 
@@ -79,6 +77,7 @@ config-man-backend-xxx    1/1   Running   (× 3)
 config-man-frontend-xxx   1/1   Running   (× 2)
 config-man-postgres-0     1/1   Running   ← primary
 config-man-postgres-1     1/1   Running   ← standby
+# Note: primary/standby roles may swap after a failover
 ```
 
 Open http://localhost:30080 in your browser.
@@ -98,6 +97,10 @@ Demo accounts (password: `password`):
 Run the demo script to prove the system survives pod failures:
 
 ```bash
+# Linux / macOS / WSL2
+./demo.sh
+
+# Windows Git Bash
 bash demo.sh
 ```
 
@@ -109,7 +112,7 @@ What it does:
 
 ## Uninstall
 
-```cmd
+```bash
 helm uninstall config-man -n config-man
 helm uninstall postgres-operator -n postgres-operator
 kubectl delete namespace config-man
