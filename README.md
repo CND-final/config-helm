@@ -1,80 +1,113 @@
-# config-man Helm Chart
+# config-helm
 
-部署 config-man 系統（backend、frontend、postgres）到 Kubernetes。
+> Kubernetes HA deployment for [config-man](https://github.com/CND-final/config-man)
+> using Helm + Zalando postgres-operator.
 
-## 快速上手
+## Architecture
+```
+namespace: config-man
+│
+├── frontend × 2 pod  (nginx, NodePort 30080)
+│     └── PodDisruptionBudget: minAvailable=1
+│
+├── backend × 3 pod   (Go API, port 3000)
+│     └── PodDisruptionBudget: minAvailable=2
+│         liveness/readiness probe
+│
+└── PostgreSQL HA (Zalando operator)
+      ├── postgres-0  primary
+      └── postgres-1  standby (auto failover)
+```
 
-### 步驟 1：安裝 chart
+## Prerequisites
 
-```bash
-# 設定 postgres 密碼並安裝
+| Tool | Version |
+|------|---------|
+| Docker Desktop | 4.x |
+| Kubernetes (Docker Desktop built-in) | enabled |
+| kubectl | 1.28+ |
+| Helm | 3.x |
+
+Enable Kubernetes in Docker Desktop:
+Settings → Kubernetes → Enable Kubernetes → Apply & Restart
+
+## Quick Start
+
+### Step 1 — Add Helm repos
+
+```cmd
+helm repo add postgres-operator-charts https://opensource.zalando.com/postgres-operator/charts/postgres-operator
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+```
+
+### Step 2 — Install Zalando postgres-operator
+
+```cmd
+helm install postgres-operator postgres-operator-charts/postgres-operator \
+  --namespace postgres-operator \
+  --create-namespace
+```
+
+Verify:
+```cmd
+kubectl get pods -n postgres-operator
+```
+Wait until `postgres-operator-xxx` is `Running`.
+
+### Step 3 — Install config-man
+
+```cmd
+git clone https://github.com/CND-final/config-helm.git
+cd config-helm
+helm dependency update .
 helm install config-man . \
-  --set postgres.credentials.password=your-secure-password \
-  --namespace default
-
-# 或用 values override 檔
-cp values.yaml my-values.yaml
-# 編輯 my-values.yaml，填入 postgres.credentials.password
-helm install config-man . -f my-values.yaml
+  --namespace config-man \
+  --create-namespace
 ```
 
-> **注意**：`postgres.credentials.password` 必須明確設定，chart 預設值為 `CHANGE_ME`，部署到正式環境前請務必替換。
+### Step 4 — Verify
 
-### 步驟 2：驗證部署
-
-```bash
-# 確認所有 pod 運行中
-kubectl get pods -l app.kubernetes.io/instance=config-man
-
-# 確認 services
-kubectl get svc -l app.kubernetes.io/instance=config-man
-
-# 確認 PDB 已套用
-kubectl get pdb -l app.kubernetes.io/instance=config-man
-
-# 瀏覽 frontend（NodePort 30080）
-# Docker Desktop: http://localhost:30080
-
-# 確認 backend health
-kubectl port-forward svc/config-man-backend 3000:3000
-curl http://localhost:3000/api/v1/health
+```cmd
+kubectl get pods -n config-man
 ```
 
-### 步驟 3：HA demo（驗證服務不中斷）
-
-```bash
-# 在另一個 terminal 持續打 health check
-while true; do curl -s http://localhost:30080 > /dev/null && echo "OK $(date)" || echo "FAIL $(date)"; sleep 1; done
-
-# 刪掉一個 backend pod，觀察 K8s 自動重建、服務不中斷
-kubectl delete pod -l app.kubernetes.io/component=backend --wait=false
-
-# 看 pod 重建過程
-kubectl get pods -l app.kubernetes.io/component=backend -w
-
-# PDB 保護：嘗試 drain node（應被 PDB 阻擋直到有足夠健康 pod）
-kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+Expected output:
+```
+config-man-backend-xxx    1/1   Running   (× 3)
+config-man-frontend-xxx   1/1   Running   (× 2)
+config-man-postgres-0     1/1   Running   ← primary
+config-man-postgres-1     1/1   Running   ← standby
 ```
 
-## Secret 說明
+Open http://localhost:30080 in your browser.
 
-`templates/secret.yaml` 產生的 Secret 包含：
+Demo accounts (password: `password`):
 
-| Key               | 說明                         | 預設值       |
-|-------------------|------------------------------|--------------|
-| `POSTGRES_PASSWORD` | Postgres 密碼              | `CHANGE_ME`  |
-| `DB_HOST`         | Postgres service DNS 名稱    | 自動產生     |
-| `DB_PORT`         | Postgres port                | `5432`       |
-| `DB_NAME`         | 資料庫名稱                   | `configman`  |
-| `DB_USER`         | 資料庫使用者                 | `configman`  |
+| Email | Role |
+|-------|------|
+| admin@config-man.local | System Admin |
+| developer@config-man.local | Developer |
 
-部署時透過 `--set postgres.credentials.password=<your-password>` 設定密碼，勿將明文密碼提交進 git。
+## HA Demo
 
-## 解除安裝
+Run the demo script to prove the system survives pod failures:
 
 ```bash
-helm uninstall config-man
+bash demo.sh
+```
 
-# PVC 不會自動刪除（保護資料），需手動清理
-kubectl delete pvc config-man-postgres-pvc
+What it does:
+1. Confirms all pods are healthy
+2. Deletes a backend pod → K8s auto-replaces it in ~8 seconds
+3. Deletes postgres primary → standby auto-promotes in ~30 seconds
+4. Confirms service is still alive after each failure
+
+## Uninstall
+
+```cmd
+helm uninstall config-man -n config-man
+helm uninstall postgres-operator -n postgres-operator
+kubectl delete namespace config-man
+kubectl delete namespace postgres-operator
 ```
