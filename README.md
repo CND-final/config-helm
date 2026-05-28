@@ -115,6 +115,8 @@ What it does:
 ```bash
 helm uninstall config-man -n config-man
 helm uninstall postgres-operator -n postgres-operator
+kubectl delete crd postgresqls.acid.zalan.do
+kubectl delete crd operatorconfigurations.acid.zalan.do
 kubectl delete namespace config-man
 kubectl delete namespace postgres-operator
 ```
