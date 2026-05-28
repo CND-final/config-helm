@@ -67,6 +67,9 @@ helm install config-man . --namespace config-man --create-namespace
 kubectl get pods -n config-man
 ```
 
+> It may take 1–2 minutes for all pods to reach Running status.
+> Re-run the command until all pods show `1/1 Running`.
+
 Expected output:
 ```
 config-man-backend-xxx    1/1   Running   (× 3)
@@ -77,6 +80,7 @@ config-man-postgres-1     1/1   Running   ← standby
 ```
 
 Open http://localhost:30080 in your browser.
+> Note: port 30080 is the Kubernetes NodePort. This is separate from the Docker Compose deployment which uses port 80.
 
 Demo accounts (password: `password`):
 

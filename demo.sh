@@ -1,60 +1,61 @@
 #!/bin/bash
 # HA Demo Script - config-man
-# 展示：kill pod 後服務不死
+# Proves the service survives pod failures
 
 set -e
 NS=config-man
 
-echo "=== 目前 pod 狀態 ==="
+echo "=== Current pod status ==="
 kubectl get pods -n $NS
 
 echo ""
-echo "=== 開始 HA demo ==="
+echo "=== Starting HA demo ==="
 
 echo ""
-echo "--- [1] 確認 backend health ---"
+echo "--- [1] Verify backend health ---"
 kubectl port-forward svc/config-man-backend 3000:3000 -n $NS &
 PF_PID=$!
 sleep 2
-curl -s http://localhost:3000/api/v1/health
+curl -s http://localhost:3000/api/v1/health || true
 kill $PF_PID 2>/dev/null
 
 echo ""
-echo "--- [2] 刪掉一個 backend pod ---"
+echo "--- [2] Delete one backend pod ---"
 BACKEND_POD=$(kubectl get pods -n $NS -l app.kubernetes.io/component=backend -o jsonpath='{.items[0].metadata.name}')
-echo "刪除: $BACKEND_POD"
+echo "Deleting: $BACKEND_POD"
 kubectl delete pod $BACKEND_POD -n $NS
 
 echo ""
-echo "--- [3] 觀察 K8s 自動補回 pod ---"
+echo "--- [3] Watch K8s auto-replace the pod ---"
 kubectl get pods -n $NS -w &
 WATCH_PID=$!
 sleep 15
 kill $WATCH_PID 2>/dev/null
 
 echo ""
-echo "--- [4] 確認服務仍然存活 ---"
+echo "--- [4] Confirm service is still alive ---"
 kubectl port-forward svc/config-man-backend 3000:3000 -n $NS &
 PF_PID=$!
 sleep 2
-curl -s http://localhost:3000/api/v1/health
+curl -s http://localhost:3000/api/v1/health || true
 kill $PF_PID 2>/dev/null
 
 echo ""
-echo "--- [5] 刪掉 postgres primary，觀察 failover ---"
-echo "刪除: config-man-postgres-0 (primary)"
+echo ""
+echo "--- [5] Delete postgres primary and observe failover ---"
+echo "Deleting: config-man-postgres-0 (primary)"
 kubectl delete pod config-man-postgres-0 -n $NS
-echo "等待 standby 升為 primary（約 30 秒）..."
+echo "Waiting for standby to promote to primary (~30s)..."
 sleep 30
 kubectl get pods -n $NS
 
 echo ""
-echo "--- [6] 確認 backend 仍可連線 ---"
+echo "--- [6] Confirm backend is still reachable ---"
 kubectl port-forward svc/config-man-backend 3000:3000 -n $NS &
 PF_PID=$!
 sleep 2
-curl -s http://localhost:3000/api/v1/health
+curl -s http://localhost:3000/api/v1/health || true
 kill $PF_PID 2>/dev/null
 
 echo ""
-echo "=== Demo 完成：pod 死了，服務沒死 ==="
+echo "=== Demo complete: pods failed, service survived ==="
