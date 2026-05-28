@@ -44,9 +44,7 @@ helm repo update
 ### Step 2 — Install Zalando postgres-operator
 
 ```bash
-helm install postgres-operator postgres-operator-charts/postgres-operator \
-  --namespace postgres-operator \
-  --create-namespace
+helm install postgres-operator postgres-operator-charts/postgres-operator --namespace postgres-operator --create-namespace
 ```
 
 Verify:
