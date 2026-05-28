@@ -4,6 +4,7 @@
 > using Helm + Zalando postgres-operator.
 
 ## Architecture
+
 ```
 namespace: config-man
 │
@@ -86,8 +87,11 @@ Demo accounts (password: `password`):
 
 | Email | Role |
 |-------|------|
-| admin@config-man.local | System Admin |
-| developer@config-man.local | Developer |
+| `admin@config-man.local` | System Admin |
+| `project-admin@config-man.local` | Project Admin |
+| `developer@config-man.local` | Developer |
+| `reviewer@config-man.local` | Reviewer |
+| `viewer@config-man.local` | Viewer |
 
 ## HA Demo
 
