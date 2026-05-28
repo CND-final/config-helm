@@ -58,9 +58,7 @@ Wait until `postgres-operator-xxx` is `Running`.
 ```bash
 git clone https://github.com/CND-final/config-helm.git
 cd config-helm
-helm install config-man . \
-  --namespace config-man \
-  --create-namespace
+helm install config-man . --namespace config-man --create-namespace
 ```
 
 ### Step 4 — Verify
