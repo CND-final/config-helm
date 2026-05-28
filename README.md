@@ -82,12 +82,13 @@ config-man-postgres-1     1/1   Running   ← standby
 Open http://localhost:30080 in your browser.
 > Note: port 30080 is the Kubernetes NodePort. This is separate from the Docker Compose deployment which uses port 80.
 
-Demo accounts (password: `password`):
+**Demo accounts (password: `password`):**
 
 | Email | Role |
 |-------|------|
 | `admin@config-man.local` | System Admin |
 | `project-admin@config-man.local` | Project Admin |
+| `group-admin@config-man.local` | Group Admin |
 | `developer@config-man.local` | Developer |
 | `reviewer@config-man.local` | Reviewer |
 | `viewer@config-man.local` | Viewer |
