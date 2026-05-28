@@ -20,6 +20,7 @@ curl -s http://localhost:3000/api/v1/health || true
 kill $PF_PID 2>/dev/null
 
 echo ""
+echo ""
 echo "--- [2] Delete one backend pod ---"
 BACKEND_POD=$(kubectl get pods -n $NS -l app.kubernetes.io/component=backend -o jsonpath='{.items[0].metadata.name}')
 echo "Deleting: $BACKEND_POD"
