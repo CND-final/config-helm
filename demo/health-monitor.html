@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>config-man · Liveness Monitor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Archivo:wght@600;800;900&display=swap');
+
+  :root {
+    --bg: #0a0e0f;
+    --panel: #11181a;
+    --up: #2ee6a6;
+    --up-glow: rgba(46, 230, 166, 0.35);
+    --down: #ff4d5e;
+    --down-glow: rgba(255, 77, 94, 0.4);
+    --pending: #f5c451;
+    --ink: #e8f0ee;
+    --ink-dim: #5e6f6c;
+    --line: #1d2729;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(46,230,166,0.06), transparent 40%),
+      radial-gradient(circle at 85% 80%, rgba(46,230,166,0.04), transparent 40%);
+    color: var(--ink);
+    font-family: 'Archivo', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 32px 40px;
+    overflow: hidden;
+  }
+
+  /* grain overlay */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 999;
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 18px;
+  }
+  .brand {
+    font-weight: 900;
+    font-size: 22px;
+    letter-spacing: -0.5px;
+  }
+  .brand span { color: var(--up); }
+  .target {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 28px;
+    align-items: center;
+    padding: 24px 0;
+  }
+
+  /* big status */
+  .status-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    padding: 40px;
+    border-radius: 20px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    position: relative;
+    transition: border-color 0.3s;
+  }
+  .beacon {
+    width: 150px; height: 150px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 70px;
+    transition: all 0.25s;
+  }
+  .beacon.up {
+    background: radial-gradient(circle, var(--up-glow), transparent 70%);
+    box-shadow: 0 0 0 2px var(--up), 0 0 60px var(--up-glow);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .beacon.down {
+    background: radial-gradient(circle, var(--down-glow), transparent 70%);
+    box-shadow: 0 0 0 2px var(--down), 0 0 60px var(--down-glow);
+    animation: shake 0.4s ease-in-out infinite;
+  }
+  .beacon.pending {
+    box-shadow: 0 0 0 2px var(--pending);
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+  }
+  .status-label {
+    font-size: 56px;
+    font-weight: 900;
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+  .status-label.up { color: var(--up); }
+  .status-label.down { color: var(--down); }
+  .status-label.pending { color: var(--pending); }
+  .status-sub {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    color: var(--ink-dim);
+  }
+
+  /* stats */
+  .stats {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px 24px;
+  }
+  .stat-k {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--ink-dim);
+    margin-bottom: 8px;
+  }
+  .stat-v {
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: -1px;
+  }
+  .stat-v.small { font-size: 26px; }
+  #uptime { color: var(--up); }
+  #downCount.bad { color: var(--down); }
+
+  /* timeline */
+  .timeline-wrap {
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+  }
+  .timeline-head {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--ink-dim);
+    margin-bottom: 10px;
+  }
+  #timeline {
+    display: flex;
+    gap: 3px;
+    height: 46px;
+    align-items: flex-end;
+  }
+  .tick {
+    flex: 1;
+    border-radius: 2px 2px 0 0;
+    transition: height 0.2s;
+    min-width: 2px;
+  }
+  .tick.up { background: var(--up); height: 100%; }
+  .tick.down { background: var(--down); height: 100%; }
+  .tick.pending { background: var(--pending); height: 40%; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">config<span>·</span>man <span style="color:var(--ink-dim);font-weight:600;font-size:14px">liveness monitor</span></div>
+    <div class="target" id="target">probing…</div>
+  </header>
+
+  <div class="main">
+    <div class="status-card">
+      <div class="beacon pending" id="beacon">⋯</div>
+      <div class="status-label pending" id="label">CONNECTING</div>
+      <div class="status-sub" id="sub">establishing first probe…</div>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-k">Uptime this session</div>
+        <div class="stat-v" id="uptime">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-k">Successful probes</div>
+        <div class="stat-v small" id="upCount">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-k">Failed probes</div>
+        <div class="stat-v small" id="downCount">0</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="timeline-wrap">
+    <div class="timeline-head">
+      <span>probe history →</span>
+      <span id="interval">every 1s</span>
+    </div>
+    <div id="timeline"></div>
+  </div>
+
+<script>
+  // ── config ──────────────────────────────────────────────────────────────
+  const URL = "http://localhost:30080/api/v1/health";
+  const INTERVAL_MS = 1000;
+  const MAX_TICKS = 90;
+
+  document.getElementById('target').textContent = URL;
+
+  let up = 0, down = 0;
+  const ticks = [];
+
+  const beacon = document.getElementById('beacon');
+  const label  = document.getElementById('label');
+  const sub    = document.getElementById('sub');
+  const elUp   = document.getElementById('upCount');
+  const elDown = document.getElementById('downCount');
+  const elUptime = document.getElementById('uptime');
+  const timeline = document.getElementById('timeline');
+
+  function setState(state) {
+    beacon.className = 'beacon ' + state;
+    label.className  = 'status-label ' + state;
+    if (state === 'up') {
+      beacon.textContent = '✓';
+      label.textContent = 'UP';
+    } else if (state === 'down') {
+      beacon.textContent = '✕';
+      label.textContent = 'DOWN';
+    } else {
+      beacon.textContent = '⋯';
+      label.textContent = 'CONNECTING';
+    }
+  }
+
+  function pushTick(state) {
+    ticks.push(state);
+    if (ticks.length > MAX_TICKS) ticks.shift();
+    timeline.innerHTML = ticks
+      .map(s => `<div class="tick ${s}"></div>`)
+      .join('');
+  }
+
+  function render() {
+    elUp.textContent = up;
+    elDown.textContent = down;
+    elDown.className = 'stat-v small' + (down > 0 ? ' bad' : '');
+    const total = up + down;
+    elUptime.textContent = total === 0 ? '—' : ((up / total) * 100).toFixed(1) + '%';
+  }
+
+  async function probe() {
+    const t0 = performance.now();
+    try {
+      // Try a real CORS fetch first so we can read the actual status code.
+      const res = await fetch(URL, { cache: 'no-store' });
+      const ms = Math.round(performance.now() - t0);
+      if (res.ok) {
+        up++;
+        setState('up');
+        sub.textContent = `HTTP ${res.status} · ${ms}ms · ${new Date().toLocaleTimeString()}`;
+        pushTick('up');
+      } else {
+        down++;
+        setState('down');
+        sub.textContent = `HTTP ${res.status} · ${new Date().toLocaleTimeString()}`;
+        pushTick('down');
+      }
+    } catch (e) {
+      // CORS-blocked OR genuinely unreachable. Fall back to a no-cors
+      // reachability check: if THAT resolves, the server is up (we just
+      // can't read the status due to CORS). If it also rejects, it's down.
+      try {
+        await fetch(URL, { mode: 'no-cors', cache: 'no-store' });
+        const ms = Math.round(performance.now() - t0);
+        up++;
+        setState('up');
+        sub.textContent = `reachable (opaque) · ${ms}ms · ${new Date().toLocaleTimeString()}`;
+        pushTick('up');
+      } catch (e2) {
+        down++;
+        setState('down');
+        sub.textContent = `unreachable · ${new Date().toLocaleTimeString()}`;
+        pushTick('down');
+      }
+    }
+    render();
+  }
+
+  // first probe immediately, then on interval
+  probe();
+  setInterval(probe, INTERVAL_MS);
+</script>
+</body>
+</html>

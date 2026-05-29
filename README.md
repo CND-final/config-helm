@@ -95,7 +95,9 @@ Open http://localhost:30080 in your browser.
 
 ## HA Demo
 
-Run the demo script to prove the system survives pod failures:
+Two ways to run the demo:
+
+**Quick version** — a single script that kills pods and checks health:
 
 ```bash
 # Linux / macOS / WSL2
@@ -110,6 +112,31 @@ What it does:
 2. Deletes a backend pod → K8s auto-replaces it in ~8 seconds
 3. Deletes postgres primary → standby auto-promotes in ~30 seconds
 4. Confirms service is still alive after each failure
+
+**Full toolkit** — a guided demo with a visual dashboard, in the `demo/` folder:
+
+| File | Purpose |
+|------|---------|
+| `demo/DEMO.md` | Step-by-step guide with talking points and screen layout |
+| `demo/ha-demo.sh` | Semi-automated driver — press Enter to advance each step |
+| `demo/watch-health.sh` | Continuous terminal health probe |
+| `demo/health-monitor.html` | Live visual dashboard (open in a browser) |
+
+Recommended setup for a live demo:
+
+```bash
+# Terminal 1 — live pod status
+kubectl get pods -n config-man -w
+
+# Terminal 2 — health probe
+bash demo/watch-health.sh
+
+# Driver terminal — guided demo
+bash demo/ha-demo.sh
+```
+
+Open `demo/health-monitor.html` in a browser for a visual liveness dashboard.
+See `demo/DEMO.md` for the full script.
 
 ## Uninstall
 
