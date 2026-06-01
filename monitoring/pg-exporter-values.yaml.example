@@ -1,0 +1,33 @@
+# prometheus-postgres-exporter values（範例）
+#
+# 使用方式：
+#   1. 複製成本檔： cp pg-exporter-values.yaml.example pg-exporter-values.yaml
+#   2. 取出 Zalando 自動產生的 postgres 超級使用者密碼（PowerShell 解 base64）：
+#        $b64 = kubectl get secret postgres.config-man-postgres.credentials.postgresql.acid.zalan.do `
+#                 -n config-man -o jsonpath="{.data.password}"
+#        [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b64))
+#   3. 把解出的明文填入下方 password
+#   4. 安裝：
+#        helm install pg-exporter prometheus-community/prometheus-postgres-exporter \
+#          -n monitoring -f pg-exporter-values.yaml
+#
+# 注意：pg-exporter-values.yaml（含真實密碼）已被 .gitignore 排除，不會進版控。
+
+config:
+  datasource:
+    host: "config-man-postgres.config-man.svc.cluster.local"  # master service
+    user: "postgres"                # 超級使用者，監控視圖權限最完整
+    password: "<YOUR_DB_PASSWORD>"  # ← 填入 Zalando secret 解出的明文密碼
+    port: "5432"
+    database: "config_man"
+    sslmode: "require"              # Zalando 強制 SSL，不可省
+
+serviceMonitor:
+  enabled: true
+  labels:
+    release: monitoring             # 對齊 kube-prometheus-stack 的 release 名，Prometheus 才會收
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
