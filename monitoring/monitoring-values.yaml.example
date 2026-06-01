@@ -1,27 +1,27 @@
-# kube-prometheus-stack values（範例）— 針對 Docker Desktop 單機 K8s 精簡
+# kube-prometheus-stack values (example) — trimmed for single-node Docker Desktop K8s
 #
-# 使用方式：
-#   1. 複製成本檔： cp monitoring-values.yaml.example monitoring-values.yaml
-#   2. 視需要修改 Grafana 密碼（demo 用可維持簡單值）
-#   3. 安裝：
+# Usage:
+#   1. Copy to the real file: cp monitoring-values.yaml.example monitoring-values.yaml
+#   2. Change the Grafana password as needed (a simple value is fine for a demo)
+#   3. Install:
 #        helm install monitoring prometheus-community/kube-prometheus-stack \
 #          -n monitoring --create-namespace -f monitoring-values.yaml
 #
-# 注意：monitoring-values.yaml（含 Grafana 密碼）已被 .gitignore 排除，不進版控。
+# Note: monitoring-values.yaml (with the Grafana password) is excluded by .gitignore and never committed.
 
-# Alertmanager：demo 不需要告警，關掉省記憶體
+# Alertmanager: not needed for the demo; disabled to save memory
 alertmanager:
   enabled: false
 
-# node-exporter：Docker Desktop on Windows 掛載宿主機路徑會 CrashLoopBackOff，關閉
-# （單節點 + VM 環境，節點層級硬體指標本就無參考價值）
+# node-exporter: on Docker Desktop on Windows, mounting host paths causes CrashLoopBackOff; disabled
+# (single-node + VM environment, so node-level hardware metrics have no reference value anyway)
 nodeExporter:
   enabled: false
 
 prometheus:
   prometheusSpec:
-    retention: 2d           # 資料保留 2 天，demo 夠用
-    scrapeInterval: "5s"    # 抓取頻率 5s，讓 failover/殺 pod 的瞬間缺口抓得到
+    retention: 2d           # keep data for 2 days; enough for a demo
+    scrapeInterval: "5s"    # scrape every 5s so the brief gap during failover / pod kill is captured
     evaluationInterval: "5s"
     resources:
       requests:
@@ -31,7 +31,7 @@ prometheus:
         memory: 1Gi
 
 grafana:
-  adminPassword: "<YOUR_GRAFANA_PASSWORD>"  # ← demo 用可填簡單值，如 admin
+  adminPassword: "<YOUR_GRAFANA_PASSWORD>"  # <- a simple value like admin is fine for a demo
   resources:
     requests:
       cpu: 50m

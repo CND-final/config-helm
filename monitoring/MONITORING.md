@@ -1,150 +1,159 @@
-# 監控與可靠性 (Monitoring & Reliability)
+# Monitoring & Reliability
 
-本文件說明 config-man 在 Kubernetes 上的監控方案：用 Prometheus 收集指標、
-Grafana 視覺化，並透過一個整合儀表板觀察高可用 (HA) 機制在故障時的行為。
+This document describes the monitoring setup for config-man on Kubernetes: Prometheus
+collects metrics, Grafana visualizes them, and a single integrated dashboard observes how
+the high-availability (HA) mechanisms behave under fault.
 
 ---
 
-## 一、監控架構
+## 1. Monitoring architecture
 
 ```
-Kubernetes 叢集
-├── kube-prometheus-stack (Helm chart，namespace: monitoring)
-│     ├── Prometheus        ← 收集 + 儲存時序指標 (scrape interval 5s)
-│     ├── Grafana           ← 視覺化儀表板
-│     └── kube-state-metrics ← K8s 物件狀態 (副本數、pod 重啟次數…)
+Kubernetes cluster
+├── kube-prometheus-stack (Helm chart, namespace: monitoring)
+│     ├── Prometheus        ← collects + stores time-series metrics (scrape interval 5s)
+│     ├── Grafana           ← dashboards
+│     └── kube-state-metrics ← K8s object state (replica counts, pod restarts...)
 └── prometheus-postgres-exporter (namespace: monitoring)
-      └── 連到 master service (config-man-postgres)，輸出 DB 指標
+      └── connects to the master service (config-man-postgres), exports DB metrics
 ```
 
-- **Prometheus**：每 5 秒抓一次各來源的指標，存成時序資料。
-- **Grafana**：讀 Prometheus，畫成儀表板「config-man HA Demo」。
-- **postgres-exporter**：以超級使用者連線 `config-man-postgres` (master service)，
-  輸出複製狀態、交易吞吐等 DB 指標；ServiceMonitor 帶 `release: monitoring`
-  標籤讓 Prometheus 自動納入收集。
+- **Prometheus**: scrapes each source every 5 seconds, stores as time-series data.
+- **Grafana**: reads Prometheus, renders the "config-man HA Demo" dashboard.
+- **postgres-exporter**: connects to `config-man-postgres` (master service) as the superuser,
+  exporting replication state, transaction throughput, etc.; its ServiceMonitor carries the
+  `release: monitoring` label so Prometheus includes it automatically.
 
-### 安裝重點 (可重現)
+### Install steps (reproducible)
 
 ```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 
-# 1. 安裝 stack（精簡設定見 monitoring-values.yaml）
+# 1. Install the stack (trimmed config in monitoring-values.yaml)
 helm install monitoring prometheus-community/kube-prometheus-stack \
   -n monitoring --create-namespace -f monitoring-values.yaml
 
-# 2. 安裝 postgres-exporter（設定見 pg-exporter-values.yaml）
+# 2. Install postgres-exporter (config in pg-exporter-values.yaml)
 helm install pg-exporter prometheus-community/prometheus-postgres-exporter \
   -n monitoring -f pg-exporter-values.yaml
 
-# 3. 開 Grafana（帳號 admin / 密碼見 values）
+# 3. Open Grafana (user admin / password from values)
 kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80
-# 瀏覽器開 http://localhost:3000 → 匯入 config-man-ha-dashboard.json
+# Browse to http://localhost:3000 → import config-man-ha-dashboard.json
 ```
 
-`monitoring-values.yaml` 的精簡重點：關閉 Alertmanager 與 node-exporter
-(在 Docker Desktop 單機環境用不到 / 跑不起來)、scrape interval 設 5s、
-降低各元件 resource request 以適應單機。
+Key points in `monitoring-values.yaml`: disable Alertmanager and node-exporter (unused /
+won't run on single-node Docker Desktop), set scrape interval to 5s, and lower each
+component's resource requests to fit a single machine.
 
 ---
 
-## 二、監控哪些指標，以及原因
+## 2. Which metrics, and why
 
-指標選擇圍繞單一目標：**證明高可用** —— 也就是「故障發生時，系統如何維持服務、
-如何自動恢復」。監控的不是「有沒有活著」的二元狀態，而是故障與恢復的動態過程。
-儀表板共五個面板：
+Metric selection centers on a single goal: **proving high availability** — i.e. "when a
+fault occurs, how does the system stay up and recover automatically." We monitor not the
+binary "is it alive" but the dynamic process of fault and recovery. The dashboard has six panels:
 
-| 面板 | 指標 | 為什麼監控 |
-|------|------|-----------|
-| **Ready Replicas by Service** | `kube_pod_status_ready` 各服務 Ready pod 數 | HA 的直接證據。殺掉一個 backend/frontend pod 時，線會下掉再被 K8s 補回，證明無狀態服務的自我修復。 |
-| **PostgreSQL Up** | `pg_up` | 資料庫是否可連線。最基本的可用性指標。 |
-| **Replication Slots Active (DB failover)** | `pg_replication_slots_active` | 顯示當前**活躍的 standby**（被複製的一方）。failover 時短暫掉到 0（複製中斷），再由新 standby 接手回 1，是 DB failover 最清楚的視覺證據。 |
-| **DB Commits / Rollbacks Rate** | `rate(pg_stat_database_xact_commit/​rollback)` | 交易吞吐。failover 期間掉落、恢復後回升，反映「服務中斷再恢復」。 |
-| **Pod Restarts (cumulative)** | `kube_pod_container_status_restarts_total` | container 層級的累計重啟次數，反映 liveness 探針觸發的重啟。 |
-
-
----
-
-## 三、Replication Slots 面板的正確解讀
-
-**線在 1 的那條，代表當前「活躍的 standby」（被複製的一方），不是 master。**
-
-原因：replication slot 由 master 建立、以 standby 命名，`active=1` 表示
-「該 standby 正連著 master 收資料」。所以：
-
-- master 換人時，standby 也換人 → 活躍的那條線跟著換。
-- failover 瞬間：原複製連線中斷，線**短暫掉到 0**；新 standby 接上後回到 1。
-
-**對照範例**（與終端機 `master: X -> Y` 對照驗證）：
-
-```
-故障前： master = postgres-0  → standby = postgres-1 → 線 config_man_postgres_1 = 1
-failover：複製中斷，線短暫掉到 0
-故障後： master = postgres-1  → standby = postgres-0 → 線 config_man_postgres_0 = 1
-```
-
-> 易錯點：不要把「線在 1 的節點」當成 master。它是 **standby**。
-> 判斷 master 一律以**終端機輸出**或 `kubectl get pods -l application=spilo -L spilo-role` 為準，
-> Grafana 的 slot 線只是輔助佐證「複製有沒有中斷、standby 是誰」。
+| Panel | Metric | Why monitor it |
+|-------|--------|----------------|
+| **Ready Replicas by Service** | `kube_pod_status_ready` per service | Direct HA evidence. When a backend/frontend pod is killed, the line drops then is restored by K8s — proving stateless self-healing. |
+| **PostgreSQL Up** | `pg_up` | Whether the DB is reachable. The most basic availability metric. |
+| **Replication Slots Active (DB failover)** | `pg_replication_slots_active` | Shows the currently **active standby** (the side being replicated to). During failover it briefly drops to 0 (replication breaks), then the new standby takes over at 1 — the clearest visual evidence of DB failover. |
+| **DB Commits / Rollbacks Rate** | `rate(pg_stat_database_xact_commit/​rollback)` | Transaction throughput. Drops during failover and rebounds afterward, reflecting "service interrupted then recovered". |
+| **Pod Restarts (cumulative)** | `kube_pod_container_status_restarts_total` | Container-level cumulative restart count, reflecting liveness-probe-triggered restarts. |
+| **CPU / Memory by Pod** *(removed)* | — | On single-node Docker Desktop, cAdvisor live container resource metrics are unavailable (see limitations), so this panel was removed. |
 
 ---
 
-## 四、Demo 操作
+## 3. Reading the Replication Slots panel correctly (important — read before demo)
 
-### 畫面配置（最簡，2 個視窗）
-- **視窗 1（瀏覽器，全螢幕）**：Grafana「config-man HA Demo」儀表板。
-- **視窗 2（終端機）**：執行 demo 腳本。
+This panel is the easiest to misread. Follow the rule below or it won't line up with the
+terminal output.
 
-> 另需一個常駐的 `kubectl port-forward svc/monitoring-grafana 3000:80`
-> 視窗維持 Grafana 連線（可最小化）。
+**Core rule: the line at 1 is the currently active *standby* (the side being replicated to), NOT the master.**
 
-### 執行
+Why: a replication slot is created on the master and named after the standby; `active=1`
+means "that standby is connected to the master and receiving data." So:
+
+- When the master changes, the standby changes too → the active line switches accordingly.
+- At the moment of failover: the existing replication connection breaks, the line **briefly
+  drops to 0**; once the new standby reconnects it returns to 1.
+
+**Worked example** (cross-check against the terminal's `master: X -> Y`):
+
+```
+Before fault: master = postgres-0  → standby = postgres-1 → line config_man_postgres_1 = 1
+Failover:     replication breaks, line briefly drops to 0
+After fault:  master = postgres-1  → standby = postgres-0 → line config_man_postgres_0 = 1
+```
+
+> Common mistake: do NOT treat "the node whose line is at 1" as the master. It is the **standby**.
+> Always determine the master from the **terminal output** or
+> `kubectl get pods -l application=spilo -L spilo-role`; the slot line only corroborates
+> "did replication break, and who is the standby".
+
+---
+
+## 4. Running the demo
+
+### Window layout (minimal, 2 windows)
+- **Window 1 (browser, full-screen)**: the Grafana "config-man HA Demo" dashboard.
+- **Window 2 (terminal)**: runs the demo script.
+
+> A separate persistent `kubectl port-forward svc/monitoring-grafana 3000:80` window is also
+> needed to keep the Grafana connection alive (can be minimized).
+
+### Run
 ```bash
 wsl bash demo/ha-demo.sh
 ```
 
-腳本流程：
-1. **[1] 故障前狀態 + 說明** → 印完停住，按 Enter 開始（趁此講解架構）。
-2. **[2] 同時注入故障**：殺一個 backend pod + 一個 frontend pod + DB master 節點。
-   - backend/frontend 用強制刪除（無狀態，立即重建）。
-   - DB master 用**正常刪除（不加 --force）**，讓 Patroni 有時間偵測並提升 standby。
-3. **[3] 自動恢復**：等 backend/frontend 補回副本、Patroni 提升新 master。
-4. **[4] 恢復後狀態**：顯示副本數已回滿、master 已切換 (X -> Y)。
+Script flow:
+1. **[1] Pre-fault state + explanation** → pauses; press Enter to start (explain the architecture here).
+2. **[2] Inject faults simultaneously**: kill one backend pod + one frontend pod + the DB master node.
+   - backend/frontend use a force delete (stateless, recreated immediately).
+   - the DB master uses a **normal delete (no --force)** so Patroni has time to detect and promote the standby.
+3. **[3] Automatic recovery**: wait for backend/frontend to restore replicas and Patroni to promote a new master.
+4. **[4] Post-fault state**: shows replica counts restored and the master switched (X -> Y).
 
-### 各面板 demo 時看什麼
+### What to watch per panel
 
-| 故障 | 看哪個面板 | 現象 |
-|------|-----------|------|
-| backend 殺 pod | Ready Replicas（綠線） | 線從 3 掉到 2，數秒後回 3 |
-| frontend 殺 pod | Ready Replicas（黃線） | 線從 2 掉到 1，數秒後回 2 |
-| **DB master 故障** | **Replication Slots Active** | (觀察不到)線短暫掉到 0，另一條接手回 1 |
-| DB 服務中斷恢復 | DB Commits / Rollbacks | 吞吐掉落後回升 |
-| failover 鐵證 | **終端機 [4]** | `master: postgres-X -> postgres-Y` |
+| Fault | Panel | Behavior |
+|-------|-------|----------|
+| backend pod killed | Ready Replicas (green) | line drops from 3 to 2, back to 3 in seconds |
+| frontend pod killed | Ready Replicas (yellow) | line drops from 2 to 1, back to 2 in seconds |
+| **DB master fault** | **Replication Slots Active** | line briefly drops to 0, another line takes over to 1 |
+| DB service interruption/recovery | DB Commits / Rollbacks | throughput drops then rebounds |
+| failover proof | **terminal [4]** | `master: postgres-X -> postgres-Y` |
 
-> DB failover 的最強證據是**終端機的 master 切換**（100% 確定），
-> Replication Slots 與 DB Commits 為視覺佐證。
-> 注意：postgres pod 重建極快，**Ready Replicas 的 postgres 線通常抓不到下掉**
-> （5s 取樣跳過了短暫空窗），這是正常的；DB 故障改看 Replication Slots。
+> The strongest evidence of DB failover is the **master switch in the terminal** (100% certain);
+> Replication Slots and DB Commits are visual corroboration.
+> Note: postgres pods are recreated very fast, so **the postgres line in Ready Replicas usually
+> won't show a dip** (the brief gap is skipped by the 5s scrape) — this is normal; watch
+> Replication Slots for DB faults instead.
 
 ---
 
-## 五、環境限制（誠實說明，可能被問到）
+## 5. Environment limitations (honest notes, may be asked)
 
-本專案的監控跑在 **Docker Desktop 單節點 K8s**，有兩個已知限制，皆為環境造成、
-非設定錯誤：
+This monitoring runs on **single-node Docker Desktop K8s**, with two known limitations, both
+caused by the environment and not misconfiguration:
 
-1. **node-exporter 無法運作**：在 Docker Desktop on Windows 上，node-exporter
-   需掛載宿主機檔案系統路徑（/proc、/sys），但 K8s 跑在 VM 內路徑對不上，
-   pod 會 CrashLoopBackOff。已停用。影響：節點層級硬體指標（節點 CPU/記憶體
-   使用率%）無法取得 —— 但單節點且在 VM 內，這些指標本就無參考價值。
+1. **node-exporter cannot run**: on Docker Desktop on Windows, node-exporter needs to mount
+   host filesystem paths (/proc, /sys), but K8s runs inside a VM where the paths don't line up,
+   so the pod ends up in CrashLoopBackOff. Disabled. Impact: node-level hardware metrics
+   (node CPU/memory utilization %) are unavailable — but on a single node inside a VM, these
+   have no reference value anyway.
 
-2. **cAdvisor 容器即時資源指標抓不到**：同源問題，導致 per-pod 的即時 CPU/記憶體
-   用量無資料，故移除該面板。
+2. **cAdvisor container live resource metrics unavailable**: same root cause, leaving per-pod
+   live CPU/memory usage without data, so that panel was removed.
 
-**標準答法**：
-> 「我們是單節點、且跑在 Docker Desktop 的 VM 裡，節點與容器層級的即時資源
-> 指標在這個環境抓不到，也沒有參考價值。我們監控的是與**高可用**直接相關的
-> 指標 —— 副本數、複製狀態、DB failover、交易吞吐，這些都正常運作。」
+**Standard answer**:
+> "We're on a single node, running inside the Docker Desktop VM, so node- and container-level
+> live resource metrics can't be collected in this environment and have no reference value here.
+> We monitor the metrics directly tied to **high availability** — replica counts, replication
+> state, DB failover, and transaction throughput — all of which work."
 
-> 補充：node-exporter / cAdvisor 在真正的多節點雲端叢集上可正常運作，
-> 屆時資源使用率指標即可補齊；這純粹是本機單機環境的限制。
+> Note: node-exporter / cAdvisor work fine on a real multi-node cloud cluster, where resource
+> utilization metrics can be filled in; this is purely a local single-machine limitation.
