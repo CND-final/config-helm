@@ -6,7 +6,7 @@
 #
 # 流程：
 #   [1] 故障前狀態 + 說明（印完停住，按 Enter 繼續）
-#   [2] 同時注入故障：殺一個 backend pod + 一個 frontend pod + DB master 節點
+#   [2] 同時注入故障：去掉一個 backend pod + 一個 frontend pod + DB master 節點
 #   [3] 自動恢復（K8s 重建無狀態副本 / Patroni 提升 standby 為新 master）
 #   [4] 恢復後狀態
 
@@ -40,24 +40,24 @@ echo "    說明："
 echo "      - backend (×3)、frontend (×2) 皆為無狀態，可互相取代。"
 echo "      - 資料庫為主從架構：1 個 master + 1 個 standby，由 Patroni 管理。"
 echo "      - 接下來會「同時」注入三個故障："
-echo "          (1) 殺一個 backend pod   → K8s 自我修復、補回副本"
-echo "          (2) 殺一個 frontend pod  → 同上（無狀態）"
-echo "          (3) 殺掉 DB master 節點   → Patroni 偵測後，提升 standby 為新 master"
+echo "          (1) 去掉一個 backend pod   → K8s 自我修復、補回副本"
+echo "          (2) 去掉一個 frontend pod  → 同上（無狀態）"
+echo "          (3) 去掉 DB master 節點   → Patroni 偵測後，提升 standby 為新 master"
 echo "      - 全程請看右側 Grafana：副本數曲線、pg_up、DB 連線、交易吞吐的變化。"
 echo ""
 echo "    （按 Enter 開始）"
 read -r
 
-# 挑要殺的 pod
+# 挑要去掉的 pod
 VICTIM_BACKEND=$(kubectl get pods -n "$NS" -l app.kubernetes.io/component=backend \
   -o jsonpath='{.items[0].metadata.name}')
 VICTIM_FRONTEND=$(kubectl get pods -n "$NS" -l app.kubernetes.io/component=frontend \
   -o jsonpath='{.items[0].metadata.name}')
 
 echo "[2] 同時注入故障"
-echo "    殺 backend pod：  ${VICTIM_BACKEND}"
-echo "    殺 frontend pod： ${VICTIM_FRONTEND}"
-echo "    殺 DB master：    ${MASTER_BEFORE}"
+echo "    kill backend pod：  ${VICTIM_BACKEND}"
+echo "    kill frontend pod： ${VICTIM_FRONTEND}"
+echo "    kill DB master：    ${MASTER_BEFORE}"
 
 # ── 2. 同時注入：背景並行 ──────────────────────────────────
 # (a)(b) 強制刪除無狀態 pod（K8s 立即重建）
@@ -108,6 +108,6 @@ else
 fi
 echo ""
 line
-echo "  Demo 完成：被殺的 backend / frontend 副本已自動補回，"
+echo "  Demo 完成：killed backend / frontend 副本已自動補回，"
 echo "  DB master 節點故障後 standby 已自動接手，服務未中斷。"
 line
