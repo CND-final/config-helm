@@ -1,0 +1,17 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: config-man-updater
+  namespace: argocd
+spec:
+  commonUpdateSettings:
+    updateStrategy: digest
+  writeBackConfig:
+    method: argocd
+  applicationRefs:
+    - namePattern: config-man
+      images:
+        - alias: backend
+          imageName: ghcr.io/cnd-final/config-man-backend:latest
+        - alias: frontend
+          imageName: ghcr.io/cnd-final/config-man-frontend:latest
